@@ -1,5 +1,13 @@
 # Supabase CLI (v1)
 
+## Fork of Supabase's cli, adds --use-system-tools
+
+Supabase's `db dump` command starts a container to execute the internal `dump_data.sh`, `dump_role.sh`, and `dump_schema.sh` which in turn use the container's `pg_dump` and `pg_dumpall`. This is problematic because in makes it difficult/impossible to run `db dump` inside a containered environment such as Kubernetes without providing privileged access to the host system container runtime.
+
+This fork of Supabase's cli adds the parameter `--use-system-tools` to the `db dump` command. This allows for using the host system's `pg_dump`, `pg_dumpall`, and shell to execute the internal shell commands. This avoids the container in container problem (commonly known as dind, docker-in-docker).
+
+---
+
 [![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main)
 
 [Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
