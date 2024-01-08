@@ -95,7 +95,7 @@ func squashMigrations(ctx context.Context, migrations []string, fsys afero.Fs, o
 		User:     "postgres",
 		Password: utils.Config.Db.Password,
 	}
-	return dump.DumpSchema(ctx, config, nil, false, false, f)
+	return dump.DumpSchema(ctx, config, nil, false, false, false, f)
 }
 
 const DELETE_MIGRATION_BEFORE = "DELETE FROM supabase_migrations.schema_migrations WHERE version <= $1"

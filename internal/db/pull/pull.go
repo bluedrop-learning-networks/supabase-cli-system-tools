@@ -90,7 +90,7 @@ func dumpRemoteSchema(p utils.Program, ctx context.Context, path string, config 
 		return errors.Errorf("failed to open dump file: %w", err)
 	}
 	defer f.Close()
-	return dump.DumpSchema(ctx, config, nil, false, false, f)
+	return dump.DumpSchema(ctx, config, nil, false, false, false, f)
 }
 
 func diffRemoteSchema(p utils.Program, ctx context.Context, schema []string, path string, config pgconn.Config, fsys afero.Fs) error {

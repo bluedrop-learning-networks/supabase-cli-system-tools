@@ -25,7 +25,7 @@ var (
 	dumpRoleScript string
 )
 
-func Run(ctx context.Context, path string, config pgconn.Config, schema []string, dataOnly, roleOnly, keepComments, useCopy, dryRun bool, fsys afero.Fs) error {
+func Run(ctx context.Context, path string, config pgconn.Config, schema []string, dataOnly, roleOnly, keepComments, useCopy, useSystemTools, dryRun bool, fsys afero.Fs) error {
 	// Initialize output stream
 	var outStream afero.File
 	if len(path) > 0 {
@@ -44,16 +44,16 @@ func Run(ctx context.Context, path string, config pgconn.Config, schema []string
 	}
 	if dataOnly {
 		fmt.Fprintln(os.Stderr, "Dumping data from remote database...")
-		return dumpData(ctx, config, schema, useCopy, dryRun, outStream)
+		return dumpData(ctx, config, schema, useCopy, useSystemTools, dryRun, outStream)
 	} else if roleOnly {
 		fmt.Fprintln(os.Stderr, "Dumping roles from remote database...")
-		return dumpRole(ctx, config, keepComments, dryRun, outStream)
+		return dumpRole(ctx, config, keepComments, useSystemTools, dryRun, outStream)
 	}
 	fmt.Fprintln(os.Stderr, "Dumping schemas from remote database...")
-	return DumpSchema(ctx, config, schema, keepComments, dryRun, outStream)
+	return DumpSchema(ctx, config, schema, keepComments, useSystemTools, dryRun, outStream)
 }
 
-func DumpSchema(ctx context.Context, config pgconn.Config, schema []string, keepComments, dryRun bool, stdout io.Writer) error {
+func DumpSchema(ctx context.Context, config pgconn.Config, schema []string, keepComments, useSystemTools, dryRun bool, stdout io.Writer) error {
 	env := []string{"EXCLUDED_SCHEMAS=" + strings.Join(utils.InternalSchemas, "|")}
 	if len(schema) > 0 {
 		env[0] = "EXTRA_FLAGS=--schema " + strings.Join(schema, "|")
@@ -61,10 +61,10 @@ func DumpSchema(ctx context.Context, config pgconn.Config, schema []string, keep
 	if !keepComments {
 		env = append(env, "EXTRA_SED=/^--/d")
 	}
-	return dump(ctx, config, dumpSchemaScript, env, dryRun, stdout)
+	return dump(ctx, config, dumpSchemaScript, env, useSystemTools, dryRun, stdout)
 }
 
-func dumpData(ctx context.Context, config pgconn.Config, schema []string, useCopy, dryRun bool, stdout io.Writer) error {
+func dumpData(ctx context.Context, config pgconn.Config, schema []string, useCopy, useSystemTools, dryRun bool, stdout io.Writer) error {
 	// We want to dump user data in auth, storage, etc. for migrating to new project
 	excludedSchemas := []string{
 		"information_schema",
@@ -104,18 +104,18 @@ func dumpData(ctx context.Context, config pgconn.Config, schema []string, useCop
 	if !useCopy {
 		env = append(env, "EXTRA_FLAGS=--column-inserts --rows-per-insert 100000")
 	}
-	return dump(ctx, config, dumpDataScript, env, dryRun, stdout)
+	return dump(ctx, config, dumpDataScript, env, useSystemTools, dryRun, stdout)
 }
 
-func dumpRole(ctx context.Context, config pgconn.Config, keepComments, dryRun bool, stdout io.Writer) error {
+func dumpRole(ctx context.Context, config pgconn.Config, keepComments, useSystemTools, dryRun bool, stdout io.Writer) error {
 	env := []string{}
 	if !keepComments {
 		env = append(env, "EXTRA_SED=/^--/d")
 	}
-	return dump(ctx, config, dumpRoleScript, env, dryRun, stdout)
+	return dump(ctx, config, dumpRoleScript, env, useSystemTools, dryRun, stdout)
 }
 
-func dump(ctx context.Context, config pgconn.Config, script string, env []string, dryRun bool, stdout io.Writer) error {
+func dump(ctx context.Context, config pgconn.Config, script string, env []string, useSystemTools, dryRun bool, stdout io.Writer) error {
 	allEnvs := append(env,
 		"PGHOST="+config.Host,
 		fmt.Sprintf("PGPORT=%d", config.Port),
@@ -140,19 +140,24 @@ func dump(ctx context.Context, config pgconn.Config, script string, env []string
 		fmt.Println(expanded)
 		return nil
 	}
-	return utils.DockerRunOnceWithConfig(
-		ctx,
-		container.Config{
-			Image: utils.Pg15Image,
-			Env:   allEnvs,
-			Cmd:   []string{"bash", "-c", script, "--"},
-		},
-		container.HostConfig{
-			NetworkMode: container.NetworkMode("host"),
-		},
-		network.NetworkingConfig{},
-		"",
-		stdout,
-		os.Stderr,
-	)
+	cmd := []string{"bash", "-c", script, "--"}
+	if useSystemTools {
+		return utils.Exec(allEnvs, cmd, stdout, os.Stderr)
+	} else {
+		return utils.DockerRunOnceWithConfig(
+			ctx,
+			container.Config{
+				Image: utils.Pg15Image,
+				Env:   allEnvs,
+				Cmd:   cmd,
+			},
+			container.HostConfig{
+				NetworkMode: container.NetworkMode("host"),
+			},
+			network.NetworkingConfig{},
+			"",
+			stdout,
+			os.Stderr,
+		)
+	}
 }
