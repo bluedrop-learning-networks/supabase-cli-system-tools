@@ -1,0 +1,68 @@
+name: Build and Publish
+on:
+  pull_request:
+  push:
+    branches:
+    - main
+    tags:
+    - 'v[0-9]+.[0-9]+.[0-9]+'
+jobs:
+  build-publish:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, amd64]
+        os: [linux, windows, darwin]
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Setup Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+    - name: Build
+      run: env GOOS=${{ matrix.os }} GOARCH=${{ matrix.arch }} go build -o supabase-${{ matrix.os }}-${{ matrix.arch }} main.go
+    - name: Publish
+      uses: actions/upload-artifact@v4
+      with:
+        name: supabase-${{ matrix.os }}-${{ matrix.arch }}
+        path: supabase-${{ matrix.os }}-${{ matrix.arch }}
+  create-release:
+    if: github.ref_type == 'tag'
+    needs: build-publish
+    runs-on: ubuntu-latest
+    outputs:
+      releaseUploadUrl: ${{ steps.create_release.outputs.upload_url }}
+    steps:
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        draft: false
+        prerelease: false
+  add-release-assets:
+    if: github.ref_type == 'tag'
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [arm64, amd64]
+        os: [linux, windows, darwin]
+    steps:
+    - name: Download Action Asset
+      uses: actions/download-artifact@v4
+      with:
+        name: supabase-${{ matrix.os }}-${{ matrix.arch }}
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.releaseUploadUrl }}
+        asset_path: ./supabase-${{ matrix.os }}-${{ matrix.arch }}
+        asset_name: supabase-${{ matrix.os }}-${{ matrix.arch }}
+        asset_content_type: application/octet-stream
